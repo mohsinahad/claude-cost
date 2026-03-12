@@ -1254,6 +1254,30 @@ def build_layout(data: DashboardData, state: DashboardState, config: dict) -> La
 
 
 def main() -> None:
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        if arg in ("-h", "--help"):
+            print("claudemeter — live terminal dashboard for Claude Code usage and costs")
+            print()
+            print("Usage: claudemeter [options]")
+            print()
+            print("Options:")
+            print("  -h, --help     Show this help message and exit")
+            print("  -v, --version  Show version and exit")
+            print()
+            print("Keys:")
+            print("  q / Q          Quit")
+            print("  r / R          Refresh")
+            print("  1              Last 24 hours")
+            print("  7              Last 7 days")
+            print("  3              Last 30 days")
+            print()
+            print("Reads data from ~/.claude/ — no API key required.")
+            return
+        if arg in ("-v", "--version"):
+            print("claudemeter 0.1.0")
+            return
+
     console = Console()
     stop_event = threading.Event()
     state = DashboardState()
