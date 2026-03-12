@@ -1,31 +1,49 @@
 ---
 name: claudemeter
-description: Launch the ClaudeMeter dashboard to monitor Claude Code token usage and costs in real time. Use this when the user wants to see their Claude usage, token counts, costs, or spending.
+description: Launch the ClaudeMeter dashboard to monitor Claude Code token usage and costs in real time. Use this when the user wants to see their Claude usage, token counts, costs, or spending. Also handles "claudemeter summary", "claudemeter reset", and "claudemeter check-budget".
 allowed-tools: Bash
 ---
 
-Launch the ClaudeMeter live terminal dashboard.
+Manage the ClaudeMeter dashboard. Arguments: $ARGUMENTS
 
-## Steps
+## Subcommands
+
+If `$ARGUMENTS` is `summary`, run:
+```bash
+claudemeter summary
+```
+Print the output inline — no need to open a new tab.
+
+If `$ARGUMENTS` is `reset`, run:
+```bash
+claudemeter reset
+```
+Print the output inline.
+
+If `$ARGUMENTS` is empty (default), launch the live dashboard (steps below).
+
+---
+
+## Steps to launch the dashboard
 
 1. Check if `claudemeter` is installed:
    ```bash
    which claudemeter 2>/dev/null
    ```
 
-2. If not installed, try to install it. Prefer `pipx` (isolated, always on PATH) over `pip`:
+2. If not installed, install it:
    ```bash
    if command -v pipx &>/dev/null; then
-     pipx install git+https://github.com/mohsinahad/claudemeter.git
+     pipx install claudemeter
    else
-     pip install --user git+https://github.com/mohsinahad/claudemeter.git
+     pip install --user claudemeter
    fi
    ```
-   If installation fails, tell the user to run one of the above commands manually in their terminal and then run `claudemeter` themselves.
+   If installation fails, tell the user to run the above manually.
 
-3. Launch the dashboard. Since claudemeter is a live TUI it must run in a real terminal, not inside Claude's tool executor. Use the best available method:
+3. Launch the dashboard in a new tab. Since claudemeter is a live TUI it must run in a real terminal, not inside Claude's tool executor.
 
-   **macOS** — detect terminal via `$TERM_PROGRAM` and open in a new tab:
+   **macOS — iTerm2:**
    ```bash
    if [ "$TERM_PROGRAM" = "iTerm.app" ]; then
      osascript \
@@ -35,19 +53,36 @@ Launch the ClaudeMeter live terminal dashboard.
        -e '    tell current session of newTab to write text "claudemeter"' \
        -e '  end tell' \
        -e 'end tell'
-   else
+   fi
+   ```
+
+   **macOS — Warp:**
+   ```bash
+   if [ "$TERM_PROGRAM" = "WarpTerminal" ]; then
+     osascript -e 'tell application "Warp" to activate'
+     sleep 0.3
+     osascript -e 'tell application "System Events" to tell process "Warp" to keystroke "t" using command down'
+     sleep 0.3
+     osascript -e 'tell application "System Events" to tell process "Warp" to keystroke "claudemeter"'
+     osascript -e 'tell application "System Events" to tell process "Warp" to key code 36'
+   fi
+   ```
+
+   **macOS — Terminal.app (fallback):**
+   ```bash
+   if [ "$TERM_PROGRAM" = "Apple_Terminal" ]; then
      osascript -e 'tell application "Terminal" to do script "claudemeter"'
    fi
    ```
 
-   **Linux** — print instructions instead of blocking:
-   ```bash
-   echo "Run 'claudemeter' in your terminal to launch the dashboard."
-   ```
+   **Linux:**
+   Tell the user: "Run `claudemeter` in a new terminal tab to see the dashboard."
 
-4. Tell the user the dashboard is launching (or give them the command to run manually if the auto-launch didn't work).
+4. Confirm to the user that the dashboard is launching (or give the manual command if auto-launch didn't work).
 
 ## Notes
-- No API key or config required — reads directly from `~/.claude/`
-- Press `q` or `Ctrl+C` to exit the dashboard
-- If the install step puts `claudemeter` in `~/.local/bin` and it's not on PATH, tell the user to add `export PATH="$HOME/.local/bin:$PATH"` to their shell profile
+- No API key or config required — reads from `~/.claude/`
+- Press `q` to quit, `1`/`7`/`3` to change time range
+- Set budgets by editing `~/.claude/dashboard_config.json`:
+  `{"daily_budget": 5.00, "monthly_budget": 50.00}`
+- If `claudemeter` is not on PATH after install, add `export PATH="$HOME/.local/bin:$PATH"` to shell profile

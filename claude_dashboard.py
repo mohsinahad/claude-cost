@@ -61,6 +61,8 @@ DEFAULT_BUDGET_CONFIG = {
     "plan": "auto",  # "pro" = Claude Pro (all tokens free), "api" = API billing, "auto" = detect from telemetry
     "hourly_rate": HUMAN_HOURLY_RATE_DEFAULT,
     "loc_per_hour": HUMAN_LOC_PER_HOUR_DEFAULT,
+    "daily_budget": None,    # float USD, or null to disable
+    "monthly_budget": None,  # float USD, or null to disable
 }
 
 TIME_RANGES: dict[str, timedelta | None] = {
@@ -1253,29 +1255,104 @@ def build_layout(data: DashboardData, state: DashboardState, config: dict) -> La
     return layout
 
 
+def _cmd_summary() -> None:
+    data = gather_data()
+    config = load_config()
+    today_cost = _today_cost(data)
+    today_tok = _today_tokens(data)
+    month_cost = _month_cost(data)
+    projected, avg_daily, trend = _compute_forecast(data)
+    daily_budget: float | None = config.get("daily_budget")
+    monthly_budget: float | None = config.get("monthly_budget")
+
+    print(f"Today:    ${today_cost:.2f}  ({_fmt_tokens(today_tok)} tokens)", end="")
+    if daily_budget:
+        pct = today_cost / daily_budget * 100
+        print(f"  [{pct:.0f}% of ${daily_budget:.0f} daily budget]", end="")
+    print()
+
+    print(f"Month:    ${month_cost:.2f}  (projected ${projected:.2f} {trend})", end="")
+    if monthly_budget:
+        pct = month_cost / monthly_budget * 100
+        print(f"  [{pct:.0f}% of ${monthly_budget:.0f} monthly budget]", end="")
+    print()
+
+    print(f"All time: ${data.total_cost:.2f}")
+
+
+def _cmd_check_budget() -> None:
+    data = gather_data()
+    config = load_config()
+    today_cost = _today_cost(data)
+    month_cost = _month_cost(data)
+    daily_budget: float | None = config.get("daily_budget")
+    monthly_budget: float | None = config.get("monthly_budget")
+
+    warnings: list[str] = []
+
+    if daily_budget and daily_budget > 0:
+        pct = today_cost / daily_budget * 100
+        if pct >= 100:
+            warnings.append(f"Daily budget exceeded: ${today_cost:.2f} / ${daily_budget:.2f} ({pct:.0f}%)")
+        elif pct >= 80:
+            warnings.append(f"Daily budget at {pct:.0f}%: ${today_cost:.2f} / ${daily_budget:.2f}")
+
+    if monthly_budget and monthly_budget > 0:
+        pct = month_cost / monthly_budget * 100
+        if pct >= 100:
+            warnings.append(f"Monthly budget exceeded: ${month_cost:.2f} / ${monthly_budget:.2f} ({pct:.0f}%)")
+        elif pct >= 80:
+            warnings.append(f"Monthly budget at {pct:.0f}%: ${month_cost:.2f} / ${monthly_budget:.2f}")
+
+    if warnings:
+        for w in warnings:
+            print(f"claudemeter warning: {w}", file=sys.stderr)
+        sys.exit(2)
+
+
+def _cmd_reset() -> None:
+    if BUDGET_CONFIG_PATH.exists():
+        BUDGET_CONFIG_PATH.unlink()
+        print(f"Config reset. Deleted {BUDGET_CONFIG_PATH}")
+    else:
+        print("No config file found — already at defaults.")
+
+
 def main() -> None:
     if len(sys.argv) > 1:
         arg = sys.argv[1]
         if arg in ("-h", "--help"):
             print("claudemeter — live terminal dashboard for Claude Code usage and costs")
             print()
-            print("Usage: claudemeter [options]")
+            print("Usage: claudemeter [command]")
+            print()
+            print("Commands:")
+            print("  summary        Print today/month costs inline (no TUI)")
+            print("  check-budget   Check against budget limits (for hooks)")
+            print("  reset          Reset config to defaults")
             print()
             print("Options:")
             print("  -h, --help     Show this help message and exit")
             print("  -v, --version  Show version and exit")
             print()
-            print("Keys:")
+            print("Keys (in dashboard):")
             print("  q / Q          Quit")
             print("  r / R          Refresh")
-            print("  1              Last 24 hours")
-            print("  7              Last 7 days")
-            print("  3              Last 30 days")
+            print("  1 / 7 / 3      Last 1d / 7d / 30d")
             print()
             print("Reads data from ~/.claude/ — no API key required.")
             return
         if arg in ("-v", "--version"):
             print("claudemeter 0.1.0")
+            return
+        if arg == "summary":
+            _cmd_summary()
+            return
+        if arg == "check-budget":
+            _cmd_check_budget()
+            return
+        if arg == "reset":
+            _cmd_reset()
             return
 
     console = Console()
