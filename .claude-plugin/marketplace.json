@@ -1,0 +1,11 @@
+{
+  "name": "claudemeter",
+  "description": "ClaudeMeter — live terminal dashboard for Claude Code usage and costs",
+  "plugins": [
+    {
+      "name": "claudemeter",
+      "description": "Live terminal dashboard for tracking Claude Code token usage and costs",
+      "source": "."
+    }
+  ]
+}

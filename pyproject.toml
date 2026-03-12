@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claudemeter"
+version = "0.1.0"
+description = "Live terminal dashboard for tracking Claude Code usage and costs"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["claude", "anthropic", "ai", "usage", "dashboard", "terminal"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "rich>=13.0",
+]
+
+[project.scripts]
+claudemeter = "claude_dashboard:main"
+
+[tool.setuptools]
+py-modules = ["claude_dashboard"]
