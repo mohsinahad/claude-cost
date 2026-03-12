@@ -25,7 +25,7 @@ Launch the ClaudeMeter live terminal dashboard.
 
 3. Launch the dashboard. Since claudemeter is a live TUI it must run in a real terminal, not inside Claude's tool executor. Use the best available method:
 
-   **macOS** — open a new window in whichever terminal app is running:
+   **macOS** — open a new tab in whichever terminal app is running:
    ```bash
    if command -v osascript &>/dev/null; then
      # Try iTerm2 first, fall back to Terminal.app
@@ -35,10 +35,15 @@ Launch the ClaudeMeter live terminal dashboard.
        end tell
        if frontApp is "iTerm2" then
          tell application "iTerm2"
-           create window with default profile command "claudemeter"
+           tell current window to create tab with default profile command "claudemeter"
          end tell
        else
-         tell application "Terminal" to do script "claudemeter"
+         tell application "Terminal"
+           activate
+           tell application "System Events" to keystroke "t" using command down
+           delay 0.3
+           do script "claudemeter" in front window
+         end tell
        end if
    SCRIPT
    fi
