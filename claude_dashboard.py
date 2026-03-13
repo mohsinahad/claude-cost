@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Claude Code Usage Dashboard - live terminal dashboard for tracking usage."""
 
+import csv
 import json
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,18 +26,46 @@ PROJECTS_DIR = CLAUDE_DIR / "projects"
 HISTORY_FILE = CLAUDE_DIR / "history.jsonl"
 TELEMETRY_DIR = CLAUDE_DIR / "telemetry"
 BUDGET_CONFIG_PATH = CLAUDE_DIR / "dashboard_config.json"
+PRICING_CACHE_PATH = CLAUDE_DIR / "claude_cost_pricing.json"
 
-HUMAN_HOURLY_RATE_DEFAULT = 100.0
-HUMAN_LOC_PER_HOUR_DEFAULT = 50
-HOURS_PER_DAY = 8
-DAYS_PER_WEEK = 5
+PRICING_URL = "https://raw.githubusercontent.com/mohsinahad/claude-cost/main/pricing.json"
+PRICING_CACHE_TTL = 86400  # 24 hours
 
-# Cost per million tokens (approximate)
+# Fallback pricing per million tokens
 COST_PER_M: dict[str, dict[str, float]] = {
     "claude-opus-4-6": {"input": 15.0, "output": 75.0, "cached": 1.875},
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0, "cached": 0.375},
     "claude-haiku-4-5-20251001": {"input": 0.80, "output": 4.0, "cached": 0.08},
 }
+
+_pricing_cache: dict[str, dict[str, float]] | None = None
+
+
+def _load_pricing() -> dict[str, dict[str, float]]:
+    global _pricing_cache
+    if _pricing_cache is not None:
+        return _pricing_cache
+    if PRICING_CACHE_PATH.exists():
+        try:
+            age = time.time() - PRICING_CACHE_PATH.stat().st_mtime
+            if age < PRICING_CACHE_TTL:
+                _pricing_cache = json.loads(PRICING_CACHE_PATH.read_text())
+                return _pricing_cache
+        except (OSError, json.JSONDecodeError):
+            pass
+    try:
+        with urllib.request.urlopen(PRICING_URL, timeout=2) as resp:
+            fetched = json.loads(resp.read())
+        try:
+            PRICING_CACHE_PATH.write_text(json.dumps(fetched))
+        except OSError:
+            pass
+        _pricing_cache = fetched
+        return _pricing_cache
+    except Exception:
+        pass
+    _pricing_cache = dict(COST_PER_M)
+    return _pricing_cache
 
 BAR_CHARS = "▁▂▃▄▅▆▇█"
 
@@ -59,8 +90,6 @@ CLR_PRO = "#a78bfa"           # light violet for Pro plan badge
 
 DEFAULT_BUDGET_CONFIG = {
     "plan": "auto",  # "pro" = Claude Pro (all tokens free), "api" = API billing, "auto" = detect from telemetry
-    "hourly_rate": HUMAN_HOURLY_RATE_DEFAULT,
-    "loc_per_hour": HUMAN_LOC_PER_HOUR_DEFAULT,
     "daily_budget": None,    # float USD, or null to disable
     "monthly_budget": None,  # float USD, or null to disable
 }
@@ -191,42 +220,6 @@ def parse_telemetry_interfaces() -> dict[str, dict[str, int | float]]:
     return session_interface  # type: ignore
 
 
-def parse_loc_by_project() -> dict[str, int]:
-    """Count lines of code written per project from Edit/Write tool calls."""
-    project_loc: dict[str, int] = {}
-    if not PROJECTS_DIR.exists():
-        return project_loc
-    for project_dir in PROJECTS_DIR.iterdir():
-        if not project_dir.is_dir():
-            continue
-        proj = _project_name(str(project_dir))
-        loc = 0
-        for jsonl in project_dir.glob("*.jsonl"):
-            for line_data in _read_jsonl(jsonl):
-                msg = line_data.get("message", {})
-                if not isinstance(msg, dict) or msg.get("role") != "assistant":
-                    continue
-                content = msg.get("content", [])
-                if not isinstance(content, list):
-                    continue
-                for block in content:
-                    if not isinstance(block, dict) or block.get("type") != "tool_use":
-                        continue
-                    name = block.get("name", "")
-                    inp = block.get("input", {})
-                    if name == "Write":
-                        file_content = inp.get("content", "")
-                        loc += file_content.count("\n") + (1 if file_content else 0)
-                    elif name == "Edit":
-                        new = inp.get("new_string", "")
-                        old = inp.get("old_string", "")
-                        new_lines = new.count("\n") + (1 if new else 0)
-                        old_lines = old.count("\n") + (1 if old else 0)
-                        loc += max(new_lines - old_lines, 0)
-        if loc > 0:
-            project_loc[proj] = loc
-    return project_loc
-
 
 def load_config() -> dict:
     if BUDGET_CONFIG_PATH.exists():
@@ -281,14 +274,15 @@ def _project_name(path: str) -> str:
 
 
 def _estimate_cost(model: str, inp: int, out: int, cached: int) -> float:
-    rates = COST_PER_M.get(model)
+    pricing = _load_pricing()
+    rates = pricing.get(model)
     if not rates:
-        for key, val in COST_PER_M.items():
+        for key, val in pricing.items():
             if key.split("-")[1] in model:
                 rates = val
                 break
     if not rates:
-        rates = COST_PER_M["claude-sonnet-4-6"]
+        rates = pricing.get("claude-sonnet-4-6", COST_PER_M["claude-sonnet-4-6"])
     return (inp * rates["input"] + out * rates["output"] + cached * rates["cached"]) / 1_000_000
 
 
@@ -380,7 +374,6 @@ def gather_data(since: datetime | None = None) -> DashboardData:
     all_sessions = parse_session_files()
     telemetry_costs = parse_telemetry()
     session_interfaces = parse_telemetry_interfaces()
-    loc_by_project = parse_loc_by_project()
 
     for sid, s in all_sessions.items():
         if sid in telemetry_costs:
@@ -422,17 +415,13 @@ def gather_data(since: datetime | None = None) -> DashboardData:
         # Project aggregation
         proj = s.project
         if proj not in data.project_totals:
-            data.project_totals[proj] = {"sessions": 0, "tokens": 0, "cost": 0.0, "messages": 0, "loc": 0}
+            data.project_totals[proj] = {"sessions": 0, "tokens": 0, "cost": 0.0, "messages": 0}
         data.project_totals[proj]["sessions"] += 1
         data.project_totals[proj]["tokens"] += s.input_tokens + s.output_tokens + s.cached_tokens
         data.project_totals[proj]["cost"] += s.cost_usd
         data.project_totals[proj]["messages"] += s.message_count
 
         data.total_cost += s.cost_usd
-
-    for proj, loc in loc_by_project.items():
-        if proj in data.project_totals:
-            data.project_totals[proj]["loc"] = loc
 
     return data
 
@@ -1036,9 +1025,11 @@ def render_projects(data: DashboardData, config: dict) -> Panel:
     table.add_column("Msgs", justify="right", style=CLR_DIM, width=5)
     table.add_column("Tokens", justify="right")
     table.add_column(cost_label, justify="right")
-    table.add_column("", width=16)
+    table.add_column("%", justify="right", style=CLR_DIM, width=5)
+    table.add_column("", width=14)
 
     max_tokens = max(int(v["tokens"]) for v in data.project_totals.values()) or 1
+    total_cost = data.total_cost or 1.0
 
     sorted_projects = sorted(
         data.project_totals.items(), key=lambda x: x[1]["cost"], reverse=True
@@ -1047,7 +1038,8 @@ def render_projects(data: DashboardData, config: dict) -> Panel:
     for proj, stats in sorted_projects[:10]:
         tokens = int(stats["tokens"])
         cost = float(stats["cost"])
-        bar_w = 14
+        pct = cost / total_cost * 100
+        bar_w = 12
         filled = max(int(tokens / max_tokens * bar_w), 1)
         bar = Text()
         bar.append("\u2588" * filled, style=CLR_INPUT)
@@ -1060,6 +1052,7 @@ def render_projects(data: DashboardData, config: dict) -> Panel:
             str(int(stats["messages"])),
             Text(_fmt_tokens(tokens), style=CLR_INPUT),
             Text(f"${cost:.4f}", style=cost_color),
+            Text(f"{pct:.0f}%", style=CLR_DIM),
             bar,
         )
 
@@ -1071,106 +1064,60 @@ def render_projects(data: DashboardData, config: dict) -> Panel:
     )
 
 
-def _fmt_duration(hours: float) -> str:
-    """Format hours into a human-readable duration (e.g. 2w 3d 4h)."""
-    if hours < 1:
-        return f"{hours * 60:.0f}m"
-    weeks = int(hours // (HOURS_PER_DAY * DAYS_PER_WEEK))
-    remaining = hours - weeks * HOURS_PER_DAY * DAYS_PER_WEEK
-    days = int(remaining // HOURS_PER_DAY)
-    remaining -= days * HOURS_PER_DAY
-    h = int(remaining)
-    parts: list[str] = []
-    if weeks:
-        parts.append(f"{weeks}w")
-    if days:
-        parts.append(f"{days}d")
-    if h or not parts:
-        parts.append(f"{h}h")
-    return " ".join(parts)
+def render_cost_trend(data: DashboardData, config: dict) -> Panel:
+    now = datetime.now(tz=timezone.utc)
+    today_str = now.strftime("%Y-%m-%d")
+    days = [(now - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(29, -1, -1)]
+    costs = [data.daily_cost.get(d, 0.0) for d in days]
+    max_cost = max(costs) if any(c > 0 for c in costs) else 1.0
+    is_pro = config.get("plan") == "pro"
 
-
-def render_cost_estimate(data: DashboardData, config: dict) -> Panel:
-    if not data.project_totals:
+    if max_cost == 0:
         return Panel(
-            Text("  No project data", style=CLR_DIM),
-            title=f"[bold {CLR_ACCENT}] HUMAN COST ESTIMATE [/bold {CLR_ACCENT}]",
+            Text("  No cost data yet", style=CLR_DIM),
+            title=f"[bold {CLR_ACCENT}] DAILY COST (30d) [/bold {CLR_ACCENT}]",
             border_style=Style(color=CLR_BORDER),
         )
 
-    is_pro = config.get("plan") == "pro"
-    hourly_rate = config.get("hourly_rate", HUMAN_HOURLY_RATE_DEFAULT)
-    loc_per_hour = config.get("loc_per_hour", HUMAN_LOC_PER_HOUR_DEFAULT)
+    # Split into two columns of 15 days each to fit horizontally
+    text = Text()
+    bar_width = 22
+    col_days = 15
+    label = "Equiv" if is_pro else "Cost"
 
-    table = Table(
-        expand=True,
-        show_header=True,
-        header_style=f"bold {CLR_ACCENT}",
-        padding=(0, 1),
-        border_style=Style(color=CLR_BORDER),
-        show_lines=False,
-    )
-    table.add_column("Project", style=CLR_TEXT)
-    table.add_column("LOC", justify="right", style=CLR_INPUT)
-    table.add_column("Time", justify="right", style=CLR_DIM)
-    table.add_column("Human Cost", justify="right")
-    table.add_column("Claude Cost", justify="right")
-    table.add_column("Savings", justify="right")
+    for row in range(col_days):
+        for col in range(2):
+            idx = col * col_days + row
+            if idx >= len(days):
+                break
+            day, cost = days[idx], costs[idx]
+            is_today = day == today_str
+            day_label = day[5:]
+            marker = ">" if is_today else " "
+            day_style = f"bold {CLR_TODAY}" if is_today else CLR_DIM
+            text.append(f" {marker}{day_label} ", style=day_style)
+            if cost > 0:
+                filled = max(int(cost / max_cost * bar_width), 1)
+                text.append("█" * filled, style=_color_cost(cost))
+            cost_style = _color_cost(cost) if cost > 0 else CLR_DIM
+            cost_str = f"${cost:.3f}"
+            padding = " " * (bar_width - (max(int(cost / max_cost * bar_width), 1) if cost > 0 else 0))
+            text.append(f"{padding} {cost_str}", style=cost_style)
+            if col == 0:
+                text.append("    ")
+        text.append("\n")
 
-    sorted_projects = sorted(
-        data.project_totals.items(),
-        key=lambda x: int(x[1].get("loc", 0)),
-        reverse=True,
-    )
-
-    total_loc = 0
-    total_human = 0.0
-    total_claude = 0.0
-
-    for proj, stats in sorted_projects[:10]:
-        loc = int(stats.get("loc", 0))
-        if loc == 0:
-            continue
-        claude_cost = float(stats["cost"])
-        human_hours = loc / loc_per_hour
-        human_cost = human_hours * hourly_rate
-        savings = human_cost - claude_cost
-
-        total_loc += loc
-        total_human += human_cost
-        total_claude += claude_cost
-
-        savings_color = CLR_COST_LOW if savings > 0 else CLR_COST_HIGH
-        suffix = " eq" if is_pro else ""
-        table.add_row(
-            Text(proj[:20], style=CLR_TEXT),
-            f"{loc:,}",
-            _fmt_duration(human_hours),
-            Text(f"${human_cost:,.0f}", style=CLR_COST_MED),
-            Text(f"${claude_cost:.2f}{suffix}", style=CLR_PRO if is_pro else CLR_INPUT),
-            Text(f"${savings:,.0f}", style=savings_color),
-        )
-
-    if total_loc > 0:
-        total_hours = total_loc / loc_per_hour
-        total_savings = total_human - total_claude
-        savings_color = CLR_COST_LOW if total_savings > 0 else CLR_COST_HIGH
-        suffix = " eq" if is_pro else ""
-        table.add_row(
-            Text("TOTAL", style=f"bold {CLR_BOLD}"),
-            Text(f"{total_loc:,}", style=f"bold {CLR_INPUT}"),
-            Text(_fmt_duration(total_hours), style=f"bold {CLR_DIM}"),
-            Text(f"${total_human:,.0f}", style=f"bold {CLR_COST_MED}"),
-            Text(f"${total_claude:.2f}{suffix}", style=f"bold {CLR_PRO if is_pro else CLR_INPUT}"),
-            Text(f"${total_savings:,.0f}", style=f"bold {savings_color}"),
-        )
-
-    rate_note = f"  @ ${hourly_rate:.0f}/hr, {loc_per_hour} LOC/hr, {HOURS_PER_DAY}h/day, {DAYS_PER_WEEK}d/week"
-    footer = Text(rate_note, style=CLR_DIM)
+    total_30d = sum(costs)
+    avg = total_30d / 30
+    suffix = " equiv" if is_pro else ""
+    text.append(f"\n  30d total: ", style=CLR_DIM)
+    text.append(f"${total_30d:.2f}{suffix}", style=f"bold {_color_cost(avg)}")
+    text.append("   avg/day: ", style=CLR_DIM)
+    text.append(f"${avg:.3f}{suffix}", style=CLR_DIM)
 
     return Panel(
-        Group(table, footer),
-        title=f"[bold {CLR_ACCENT}] HUMAN COST ESTIMATE [/bold {CLR_ACCENT}]",
+        text,
+        title=f"[bold {CLR_ACCENT}] DAILY {label.upper()} (30d) [/bold {CLR_ACCENT}]",
         border_style=Style(color=CLR_BORDER),
         padding=(0, 0),
     )
@@ -1229,7 +1176,7 @@ def build_layout(data: DashboardData, state: DashboardState, config: dict) -> La
             Layout(name="top", ratio=2),
             Layout(name="middle", ratio=2),
             Layout(name="bottom", ratio=2),
-            Layout(name="cost_estimate", ratio=2),
+            Layout(name="cost_trend", ratio=2),
         )
         layout["top"].split_row(
             Layout(name="summary"),
@@ -1250,7 +1197,7 @@ def build_layout(data: DashboardData, state: DashboardState, config: dict) -> La
         layout["heatmap"].update(render_heatmap(data))
         layout["sessions"].update(render_sessions(data, state, config))
         layout["models"].update(render_models(data))
-        layout["cost_estimate"].update(render_cost_estimate(data, config))
+        layout["cost_trend"].update(render_cost_trend(data, config))
 
     return layout
 
@@ -1318,6 +1265,61 @@ def _cmd_reset() -> None:
         print("No config file found — already at defaults.")
 
 
+def _cmd_export(path: str | None = None) -> None:
+    data = gather_data()
+    out_path = Path(path) if path else Path(f"claude-cost-{datetime.now().strftime('%Y%m%d')}.csv")
+    sessions = sorted(
+        data.sessions.values(),
+        key=lambda s: s.first_ts or datetime.min.replace(tzinfo=timezone.utc),
+    )
+    with out_path.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "date", "project", "model",
+            "input_tokens", "output_tokens", "cached_tokens",
+            "cost_usd", "messages", "duration_min",
+        ])
+        for s in sessions:
+            dur = 0
+            if s.first_ts and s.last_ts:
+                dur = int((s.last_ts - s.first_ts).total_seconds() / 60)
+            writer.writerow([
+                s.first_ts.strftime("%Y-%m-%d %H:%M:%S") if s.first_ts else "",
+                s.project,
+                s.model,
+                s.input_tokens,
+                s.output_tokens,
+                s.cached_tokens,
+                f"{s.cost_usd:.6f}",
+                s.message_count,
+                dur,
+            ])
+    print(f"Exported {len(sessions)} sessions to {out_path}")
+
+
+def _cmd_watch() -> None:
+    print("Watching for new Claude sessions... (Ctrl+C to stop)\n")
+    known: dict[str, float] = {}
+    try:
+        while True:
+            data = gather_data()
+            for sid, s in data.sessions.items():
+                prev = known.get(sid)
+                total_tok = s.input_tokens + s.output_tokens + s.cached_tokens
+                ts = s.first_ts.strftime("%H:%M") if s.first_ts else "?"
+                model_short = s.model.replace("claude-", "").split("-20")[0]
+                if prev is None and s.cost_usd > 0:
+                    known[sid] = s.cost_usd
+                    print(f"[{ts}]  {s.project:<22} {model_short:<16} {_fmt_tokens(total_tok):>8} tok  ${s.cost_usd:.4f}")
+                elif prev is not None and s.cost_usd != prev:
+                    diff = s.cost_usd - prev
+                    known[sid] = s.cost_usd
+                    print(f"       {s.project:<22} {'(updated)':<16} {_fmt_tokens(total_tok):>8} tok  ${s.cost_usd:.4f}  (+${diff:.4f})")
+            time.sleep(5)
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+
 def main() -> None:
     if len(sys.argv) > 1:
         arg = sys.argv[1]
@@ -1327,18 +1329,20 @@ def main() -> None:
             print("Usage: claude-cost [command]")
             print()
             print("Commands:")
-            print("  summary        Print today/month costs inline (no TUI)")
-            print("  check-budget   Check against budget limits (for hooks)")
-            print("  reset          Reset config to defaults")
+            print("  summary          Print today/month costs inline (no TUI)")
+            print("  check-budget     Check against budget limits (for hooks)")
+            print("  export [file]    Export all sessions to CSV")
+            print("  watch            Stream new session costs as they happen")
+            print("  reset            Reset config to defaults")
             print()
             print("Options:")
-            print("  -h, --help     Show this help message and exit")
-            print("  -v, --version  Show version and exit")
+            print("  -h, --help       Show this help message and exit")
+            print("  -v, --version    Show version and exit")
             print()
             print("Keys (in dashboard):")
-            print("  q / Q          Quit")
-            print("  r / R          Refresh")
-            print("  1 / 7 / 3      Last 1d / 7d / 30d")
+            print("  q / Q            Quit")
+            print("  r / R            Refresh")
+            print("  1 / 7 / 3        Last 1d / 7d / 30d")
             print()
             print("Reads data from ~/.claude/ — no API key required.")
             return
@@ -1347,13 +1351,19 @@ def main() -> None:
                 from importlib.metadata import version
                 print(f"claude-cost {version('claude-cost')}")
             except Exception:
-                print("claude-cost 0.1.1")
+                print("claude-cost 0.2.0")
             return
         if arg == "summary":
             _cmd_summary()
             return
         if arg == "check-budget":
             _cmd_check_budget()
+            return
+        if arg == "export":
+            _cmd_export(sys.argv[2] if len(sys.argv) > 2 else None)
+            return
+        if arg == "watch":
+            _cmd_watch()
             return
         if arg == "reset":
             _cmd_reset()
