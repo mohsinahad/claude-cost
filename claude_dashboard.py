@@ -1347,7 +1347,7 @@ def main() -> None:
                 from importlib.metadata import version
                 print(f"claude-cost {version('claude-cost')}")
             except Exception:
-                print("claude-cost 0.1.0")
+                print("claude-cost 0.1.1")
             return
         if arg == "summary":
             _cmd_summary()
