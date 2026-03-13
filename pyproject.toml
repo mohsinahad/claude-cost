@@ -20,13 +20,13 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Utilities",
 ]
-[project.urls]
-Homepage = "https://github.com/mohsinahad/claude-cost"
-Repository = "https://github.com/mohsinahad/claude-cost"
-
 dependencies = [
     "rich>=13.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/mohsinahad/claude-cost"
+Repository = "https://github.com/mohsinahad/claude-cost"
 
 [project.scripts]
 claude-cost = "claude_dashboard:main"
