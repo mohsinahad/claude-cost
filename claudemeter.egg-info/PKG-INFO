@@ -1,4 +1,22 @@
-# claude-cost
+Metadata-Version: 2.4
+Name: claudemeter
+Version: 0.1.0
+Summary: Live terminal dashboard for tracking Claude Code usage and costs
+License: MIT
+Keywords: claude,anthropic,ai,usage,dashboard,terminal
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Utilities
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: rich>=13.0
+
+# ClaudeMeter
 
 Live terminal dashboard for tracking Claude Code token usage and costs.
 
@@ -6,23 +24,23 @@ Live terminal dashboard for tracking Claude Code token usage and costs.
 
 ```
 /plugin marketplace add mohsinahad/claudemeter
-/plugin install claude-cost@claude-cost
+/plugin install claudemeter@claudemeter
 ```
 
 Then use:
 
 ```
-/claude-cost             # launch live dashboard in a new tab
-/claude-cost summary     # print today/month costs inline
-/claude-cost reset       # reset config to defaults
+/claudemeter             # launch live dashboard in a new tab
+/claudemeter summary     # print today/month costs inline
+/claudemeter reset       # reset config to defaults
 ```
 
 ## Install as a standalone CLI
 
 ```bash
-pipx install claude-cost        # recommended
+pipx install claudemeter        # recommended
 # or
-pip install claude-cost
+pip install claudemeter
 ```
 
 > **Note:** If pip warns that the script is installed in `~/.local/bin` which is not on PATH, add this to your `~/.zshrc` or `~/.bashrc`:
@@ -33,9 +51,9 @@ pip install claude-cost
 Then run:
 
 ```bash
-claude-cost           # live dashboard
-claude-cost summary   # quick inline summary
-claude-cost reset     # reset config
+claudemeter           # live dashboard
+claudemeter summary   # quick inline summary
+claudemeter reset     # reset config
 ```
 
 ## Budget alerts
@@ -59,7 +77,7 @@ To get automatic warnings after each Claude session, add a hook to `~/.claude/se
         "hooks": [
           {
             "type": "command",
-            "command": "claude-cost check-budget"
+            "command": "claudemeter check-budget"
           }
         ]
       }
@@ -73,12 +91,12 @@ Claude will print a warning in your session whenever you hit 80% or 100% of your
 ## Usage
 
 ```
-claude-cost --help     # show help
-claude-cost --version  # show version
-claude-cost            # launch the dashboard
-claude-cost summary    # print costs inline (no TUI)
-claude-cost check-budget  # check limits (exits 2 if over 80%)
-claude-cost reset      # reset config to defaults
+claudemeter --help     # show help
+claudemeter --version  # show version
+claudemeter            # launch the dashboard
+claudemeter summary    # print costs inline (no TUI)
+claudemeter check-budget  # check limits (exits 2 if over 80%)
+claudemeter reset      # reset config to defaults
 ```
 
 **Keys inside the dashboard:**

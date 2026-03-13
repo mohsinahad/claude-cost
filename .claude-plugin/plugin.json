@@ -1,5 +1,5 @@
 {
-  "name": "claudemeter",
+  "name": "claude-cost",
   "version": "0.1.0",
   "description": "Live terminal dashboard for tracking Claude Code usage and costs"
 }

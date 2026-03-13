@@ -1,0 +1,2 @@
+[console_scripts]
+claudemeter = claude_dashboard:main
