@@ -1,9 +1,0 @@
-README.md
-claude_dashboard.py
-pyproject.toml
-claudemeter.egg-info/PKG-INFO
-claudemeter.egg-info/SOURCES.txt
-claudemeter.egg-info/dependency_links.txt
-claudemeter.egg-info/entry_points.txt
-claudemeter.egg-info/requires.txt
-claudemeter.egg-info/top_level.txt
