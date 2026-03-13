@@ -1,4 +1,4 @@
-# ClaudeMeter
+# claude-cost
 
 Live terminal dashboard for tracking Claude Code token usage and costs.
 
@@ -20,9 +20,9 @@ Then use:
 ## Install as a standalone CLI
 
 ```bash
-pipx install claudemeter        # recommended
+pipx install claude-cost        # recommended
 # or
-pip install claudemeter
+pip install claude-cost
 ```
 
 > **Note:** If pip warns that the script is installed in `~/.local/bin` which is not on PATH, add this to your `~/.zshrc` or `~/.bashrc`:
@@ -33,9 +33,9 @@ pip install claudemeter
 Then run:
 
 ```bash
-claudemeter           # live dashboard
-claudemeter summary   # quick inline summary
-claudemeter reset     # reset config
+claude-cost           # live dashboard
+claude-cost summary   # quick inline summary
+claude-cost reset     # reset config
 ```
 
 ## Budget alerts
@@ -59,7 +59,7 @@ To get automatic warnings after each Claude session, add a hook to `~/.claude/se
         "hooks": [
           {
             "type": "command",
-            "command": "claudemeter check-budget"
+            "command": "claude-cost check-budget"
           }
         ]
       }
@@ -73,12 +73,12 @@ Claude will print a warning in your session whenever you hit 80% or 100% of your
 ## Usage
 
 ```
-claudemeter --help     # show help
-claudemeter --version  # show version
-claudemeter            # launch the dashboard
-claudemeter summary    # print costs inline (no TUI)
-claudemeter check-budget  # check limits (exits 2 if over 80%)
-claudemeter reset      # reset config to defaults
+claude-cost --help     # show help
+claude-cost --version  # show version
+claude-cost            # launch the dashboard
+claude-cost summary    # print costs inline (no TUI)
+claude-cost check-budget  # check limits (exits 2 if over 80%)
+claude-cost reset      # reset config to defaults
 ```
 
 **Keys inside the dashboard:**

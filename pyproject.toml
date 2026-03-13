@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "claudemeter"
+name = "claude-cost"
 version = "0.1.0"
 description = "Live terminal dashboard for tracking Claude Code usage and costs"
 readme = "README.md"
@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.scripts]
-claudemeter = "claude_dashboard:main"
+claude-cost = "claude_dashboard:main"
 
 [tool.setuptools]
 py-modules = ["claude_dashboard"]

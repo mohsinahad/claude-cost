@@ -1306,7 +1306,7 @@ def _cmd_check_budget() -> None:
 
     if warnings:
         for w in warnings:
-            print(f"claudemeter warning: {w}", file=sys.stderr)
+            print(f"claude-cost warning: {w}", file=sys.stderr)
         sys.exit(2)
 
 
@@ -1322,9 +1322,9 @@ def main() -> None:
     if len(sys.argv) > 1:
         arg = sys.argv[1]
         if arg in ("-h", "--help"):
-            print("claudemeter — live terminal dashboard for Claude Code usage and costs")
+            print("claude-cost — live terminal dashboard for Claude Code usage and costs")
             print()
-            print("Usage: claudemeter [command]")
+            print("Usage: claude-cost [command]")
             print()
             print("Commands:")
             print("  summary        Print today/month costs inline (no TUI)")
@@ -1345,9 +1345,9 @@ def main() -> None:
         if arg in ("-v", "--version"):
             try:
                 from importlib.metadata import version
-                print(f"claudemeter {version('claudemeter')}")
+                print(f"claude-cost {version('claude-cost')}")
             except Exception:
-                print("claudemeter 0.1.0")
+                print("claude-cost 0.1.0")
             return
         if arg == "summary":
             _cmd_summary()
